@@ -4,7 +4,13 @@ const pool = require('../config/db');
 
 router.get('/network', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM network_synthese');
+    const query = `
+      SELECT DISTINCT ON (indicateur) *
+      FROM network_synthese
+      ORDER BY indicateur, date DESC
+    `;
+
+    const result = await pool.query(query);
     res.json(result.rows);
   } catch (error) {
     console.error(error);
