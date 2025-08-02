@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_gauges/gauges.dart';
 import 'throughput_vendor_page.dart';
 import 'traffic_cable_page.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 void main() {
   runApp(DashNetApp());
@@ -35,6 +37,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   String _selectedPage = 'network_synthese';
+  String? _selectedCountry;
 
   void _navigate(String page) {
     setState(() {
@@ -113,7 +116,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     } else if (_selectedPage == 'bpi_traffic') {
       return FutureBuilder<List<dynamic>>(
-        future: fetchBpiTraffic(),
+        future: fetchBpiTraffic(), // <-- doit pointer sur /bpi_traffic
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return Center(child: CircularProgressIndicator());
@@ -126,16 +129,27 @@ class _HomeScreenState extends State<HomeScreen> {
             return ListView(
               padding: const EdgeInsets.all(16.0),
               children: [
-                // Affiche la gauge pour INT_IP_Interface_Utilization_MAX_%
-                ...data.where((item) =>
-                  (item['indicateur'] ?? '') == 'INT_IP_Interface_Utilization_MAX_%'
-                ).map((item) =>
-                  _gaugeCard(item['indicateur'], item['valeur'], item['date'])
+                ElevatedButton.icon(
+                  icon: Icon(Icons.map),
+                  label: Text('Map'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.shade900,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    textStyle: TextStyle(fontSize: 16),
+                  ),
+                  onPressed: () async {
+                    // Pour la map, on va chercher les données groupées par pays
+                    final mapData = await fetchBpiTrafficByCountry();
+                    showDialog(
+                      context: context,
+                      builder: (context) => BpiTrafficMapDialog(data: mapData),
+                    );
+                  },
                 ),
-                // Les autres indicateurs en carte simple
-                ...data.where((item) =>
-                  (item['indicateur'] ?? '') != 'INT_IP_Interface_Utilization_MAX_%'
-                ).map((item) =>
+                SizedBox(height: 16),
+                ...data.map((item) =>
                   _indicatorCard(item['indicateur'], item['valeur'], item['date'])
                 ),
               ],
@@ -527,3 +541,228 @@ Future<List<dynamic>> fetchBpiTraffic() async {
     throw Exception('Erreur lors du chargement des données');
   }
 }
+
+Future<List<dynamic>> fetchBpiTrafficByCountry() async {
+  final response = await http.get(Uri.parse('http://10.0.2.2:3000/api/bpi_traffic/by_country'));
+  if (response.statusCode == 200) {
+    return jsonDecode(response.body);
+  } else {
+    throw Exception('Erreur lors du chargement des données');
+  }
+}
+
+final Map<String, LatLng> countryCoords = {
+  'MOOV-AFRICA-BENIN': LatLng(9.3077, 2.3158),
+  'MOOV-AFRICA-BURKINA': LatLng(12.2383, -1.5616),
+  'MOOV-AFRICA-CI': LatLng(7.539989, -5.54708),
+  'MOOV-AFRICA-GABON': LatLng(-0.8037, 11.6094),
+  'MOOV-AFRICA-MALITEL': LatLng(17.5707, -3.9962),
+  'MOOV-AFRICA-TOGO': LatLng(8.6195, 0.8248),
+};
+
+class BpiTrafficMapDialog extends StatelessWidget {
+  final List<dynamic> data;
+  const BpiTrafficMapDialog({required this.data, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final Map<String, List<dynamic>> indicateursByCountry = {};
+    for (final country in countryCoords.keys) {
+      indicateursByCountry[country] = data.where((e) => (e['source'] ?? '') == country).toList();
+    }
+
+    return AlertDialog(
+      title: Text('BPI Traffic Map'),
+      content: SizedBox(
+        width: MediaQuery.of(context).size.width * 0.95,
+        height: 400,
+        child: _MapWithBottomSheet(indicateursByCountry: indicateursByCountry),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text('Fermer'),
+        ),
+      ],
+    );
+  }
+}
+
+class _MapWithBottomSheet extends StatefulWidget {
+  final Map<String, List<dynamic>> indicateursByCountry;
+  const _MapWithBottomSheet({required this.indicateursByCountry});
+
+  @override
+  State<_MapWithBottomSheet> createState() => _MapWithBottomSheetState();
+}
+
+class _MapWithBottomSheetState extends State<_MapWithBottomSheet> {
+  double zoom = 3.5;
+  final mapController = MapController();
+
+  void setZoom(double newZoom) {
+    setState(() {
+      zoom = newZoom;
+      mapController.move(mapController.center, zoom);
+    });
+  }
+
+  Widget _indicatorCard(String indicateur, dynamic valeur, dynamic date) {
+    return Card(
+      elevation: 6,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
+      margin: EdgeInsets.symmetric(vertical: 10),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          color: Colors.white,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              indicateur,
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue.shade900),
+            ),
+            SizedBox(height: 8),
+            Text(
+              valeur.toString(),
+              style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.blue.shade700),
+            ),
+            SizedBox(height: 6),
+            Text(
+              'Date : ${date.toString().split('T').first}',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        FlutterMap(
+          mapController: mapController,
+          options: MapOptions(
+            center: LatLng(7.5, 2.5),
+            zoom: zoom,
+            interactiveFlags: InteractiveFlag.all,
+          ),
+          children: [
+            TileLayer(
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'com.example.app',
+            ),
+            MarkerLayer(
+              markers: countryCoords.entries.map((entry) {
+                final country = entry.key;
+                final coord = entry.value;
+                return Marker(
+                  width: 40,
+                  height: 40,
+                  point: coord,
+                  child: GestureDetector(
+                    onTap: () {
+                      final indicateurs = widget.indicateursByCountry[country] ?? [];
+                      showModalBottomSheet(
+                        context: context,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                        ),
+                        builder: (context) {
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                            child: SingleChildScrollView(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Center(
+                                    child: Container(
+                                      width: 40,
+                                      height: 4,
+                                      margin: EdgeInsets.only(bottom: 16),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey[400],
+                                        borderRadius: BorderRadius.circular(2),
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    country.replaceAll('MOOV-AFRICA-', ''),
+                                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blue.shade900),
+                                  ),
+                                  SizedBox(height: 12),
+                                  if (indicateurs.isEmpty)
+                                    Text('Aucune donnée', style: TextStyle(fontSize: 16)),
+                                  ...indicateurs.map((item) => _indicatorCard(
+                                        item['indicateur'],
+                                        item['valeur'],
+                                        item['date'],
+                                      )),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                    child: CircleAvatar(
+                      backgroundColor: Colors.blue.shade700,
+                      child: Text(
+                        country.replaceAll('MOOV-AFRICA-', '').substring(0, 2),
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+        Positioned(
+          top: 10,
+          right: 10,
+          child: Column(
+            children: [
+              FloatingActionButton(
+                mini: true,
+                heroTag: 'zoomIn',
+                backgroundColor: Colors.blue.shade900,
+                child: Icon(Icons.add, color: Colors.white),
+                onPressed: () {
+                  setZoom((zoom + 0.5).clamp(2.0, 18.0));
+                },
+              ),
+              SizedBox(height: 8),
+              FloatingActionButton(
+                mini: true,
+                heroTag: 'zoomOut',
+                backgroundColor: Colors.blue.shade900,
+                child: Icon(Icons.remove, color: Colors.white),
+                onPressed: () {
+                  setZoom((zoom - 0.5).clamp(2.0, 18.0));
+                },
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+final paysList = [
+  'MOOV-AFRICA-BENIN',
+  'MOOV-AFRICA-BURKINA',
+  'MOOV-AFRICA-CI',
+  'MOOV-AFRICA-GABON',
+  'MOOV-AFRICA-MALITEL',
+  'MOOV-AFRICA-TOGO',
+];

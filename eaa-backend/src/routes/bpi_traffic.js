@@ -17,4 +17,20 @@ router.get('/bpi_traffic', async (req, res) => {
   }
 });
 
+router.get('/bpi_traffic/by_country', async (req, res) => {
+  try {
+    const query = `
+      SELECT DISTINCT ON (source, indicateur) *
+      FROM bpi_traffic_operateur
+      WHERE source NOT LIKE 'AGGR%'
+      ORDER BY source, indicateur, date DESC
+    `;
+    const result = await pool.query(query);
+    res.json(result.rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
 module.exports = router;

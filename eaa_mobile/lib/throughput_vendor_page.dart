@@ -51,7 +51,6 @@ class ThroughputVendorPage extends StatelessWidget {
               final items = data.where((e) => (e['indicateur'] ?? '') == name).toList();
               if (items.isEmpty) return SizedBox.shrink();
 
-              // Liste fixe des sources à afficher
               final allSources = ['Huawei', 'Ericsson', 'Nokia'];
 
               return Card(
