@@ -4,7 +4,12 @@ const pool = require('../config/db');
 
 router.get('/trafic_cable', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM trafic_cable_bpi_bh LIMIT 10');
+    const query = `
+      SELECT DISTINCT ON (indicateur) *
+      FROM trafic_cable_bpi_bh
+      ORDER BY indicateur, date DESC
+    `;
+    const result = await pool.query(query);
     res.json(result.rows);
   } catch (error) {
     console.error(error);

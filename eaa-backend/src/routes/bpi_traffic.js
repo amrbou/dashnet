@@ -4,7 +4,12 @@ const pool = require('../config/db');
 
 router.get('/bpi_traffic', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM bpi_traffic_operateur LIMIT 10');
+    const query = `
+      SELECT DISTINCT ON (indicateur) *
+      FROM bpi_traffic_operateur
+      ORDER BY indicateur, date DESC
+    `;
+    const result = await pool.query(query);
     res.json(result.rows);
   } catch (error) {
     console.error(error);

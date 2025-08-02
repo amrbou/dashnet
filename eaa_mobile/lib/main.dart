@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_gauges/gauges.dart';
+import 'throughput_vendor_page.dart';
+import 'traffic_cable_page.dart';
 
 void main() {
   runApp(DashNetApp());
@@ -109,6 +111,42 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         },
       );
+    } else if (_selectedPage == 'bpi_traffic') {
+      return FutureBuilder<List<dynamic>>(
+        future: fetchBpiTraffic(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Center(child: CircularProgressIndicator());
+          } else if (snapshot.hasError) {
+            return Center(child: Text('Erreur: ${snapshot.error}'));
+          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+            return Center(child: Text('Aucune donnée'));
+          } else {
+            final data = snapshot.data!;
+            return ListView(
+              padding: const EdgeInsets.all(16.0),
+              children: [
+                // Affiche la gauge pour INT_IP_Interface_Utilization_MAX_%
+                ...data.where((item) =>
+                  (item['indicateur'] ?? '') == 'INT_IP_Interface_Utilization_MAX_%'
+                ).map((item) =>
+                  _gaugeCard(item['indicateur'], item['valeur'], item['date'])
+                ),
+                // Les autres indicateurs en carte simple
+                ...data.where((item) =>
+                  (item['indicateur'] ?? '') != 'INT_IP_Interface_Utilization_MAX_%'
+                ).map((item) =>
+                  _indicatorCard(item['indicateur'], item['valeur'], item['date'])
+                ),
+              ],
+            );
+          }
+        },
+      );
+    } else if (_selectedPage == 'throughput vendor') {
+      return ThroughputVendorPage();
+    } else if (_selectedPage == 'traffic_cable') {
+      return TrafficCablePage();
     }
     return Center(
       child: Text(
@@ -301,6 +339,125 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _gaugeCardWithSource(String indicateur, dynamic valeur, dynamic date, String source) {
+    double doubleValue = 0;
+    try {
+      doubleValue = double.tryParse(valeur.toString()) ?? 0;
+    } catch (_) {}
+
+    // Définir les bornes pour les couleurs (adapte selon tes besoins)
+    double max = (doubleValue * 1.5).clamp(1, 100);
+    double orangeLimit = max * 0.6;
+    double greenLimit = max * 0.85;
+
+    // Déduire l'unité à partir du nom de l'indicateur
+    String unite = '';
+    if (indicateur.contains('Gbps')) unite = 'Gbps';
+    if (indicateur.contains('Mbps')) unite = 'Mbps';
+
+    return Card(
+      elevation: 8,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(32),
+      ),
+      margin: EdgeInsets.symmetric(vertical: 12),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(32),
+          gradient: LinearGradient(
+            colors: [Colors.blue.shade900, Colors.blue.shade400], // BLEU sobre
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              indicateur,
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+            SizedBox(height: 10),
+            SfRadialGauge(
+              axes: <RadialAxis>[
+                RadialAxis(
+                  minimum: 0,
+                  maximum: max,
+                  showLabels: false,
+                  showTicks: false,
+                  axisLineStyle: AxisLineStyle(
+                    thickness: 0.2,
+                    thicknessUnit: GaugeSizeUnit.factor,
+                  ),
+                  ranges: <GaugeRange>[
+                    GaugeRange(
+                      startValue: 0,
+                      endValue: orangeLimit,
+                      color: Colors.blue.shade700,
+                      startWidth: 0.2,
+                      endWidth: 0.2,
+                      sizeUnit: GaugeSizeUnit.factor,
+                    ),
+                    GaugeRange(
+                      startValue: orangeLimit,
+                      endValue: greenLimit,
+                      color: Colors.blue.shade400,
+                      startWidth: 0.2,
+                      endWidth: 0.2,
+                      sizeUnit: GaugeSizeUnit.factor,
+                    ),
+                    GaugeRange(
+                      startValue: greenLimit,
+                      endValue: max,
+                      color: Colors.blue.shade200,
+                      startWidth: 0.2,
+                      endWidth: 0.2,
+                      sizeUnit: GaugeSizeUnit.factor,
+                    ),
+                  ],
+                  pointers: <GaugePointer>[
+                    NeedlePointer(value: doubleValue, needleColor: Colors.white),
+                  ],
+                  annotations: <GaugeAnnotation>[
+                    GaugeAnnotation(
+                      widget: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '$valeur',
+                            style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white),
+                          ),
+                          if (unite.isNotEmpty)
+                            Text(
+                              unite,
+                              style: TextStyle(fontSize: 18, color: Colors.white70),
+                            ),
+                        ],
+                      ),
+                      angle: 90,
+                      positionFactor: 0.7,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            SizedBox(height: 10),
+            Text(
+              'Date : $date',
+              style: TextStyle(fontSize: 16, color: Colors.white70),
+            ),
+            SizedBox(height: 4),
+            Text(
+              'Source : $source',
+              style: TextStyle(fontSize: 14, color: Colors.white70),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -355,6 +512,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
 Future<List<dynamic>> fetchNetworkSynthese() async {
   final response = await http.get(Uri.parse('http://10.0.2.2:3000/api/network'));
+  if (response.statusCode == 200) {
+    return jsonDecode(response.body);
+  } else {
+    throw Exception('Erreur lors du chargement des données');
+  }
+}
+
+Future<List<dynamic>> fetchBpiTraffic() async {
+  final response = await http.get(Uri.parse('http://10.0.2.2:3000/api/bpi_traffic'));
   if (response.statusCode == 200) {
     return jsonDecode(response.body);
   } else {
